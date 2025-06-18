@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
-import mongodb_url from process.env.mongodb_url
+import dotenv from "dotenv"
 import { Schema, model } from "mongoose";
-
-mongoose.connect(mongodb_url)
+dotenv.config()
+const mongodb_url = process.env.mongodb_url
+const connected = mongoose.connect(mongodb_url).then(()=>{console.log("connected to DB")})
 
 const userSchema = new Schema({
     username:{
@@ -29,10 +30,10 @@ const userSchema = new Schema({
         type:String,
         required:true
     },
-    uniqueKey :{
-        type:String,
-        required:true
-    }, 
+    // uniqueKey :{
+    //     type:String,
+    //     required:true
+    // }, 
     yearsofExperience:{
         type:Number,
         required:true
@@ -57,6 +58,6 @@ const userSchema = new Schema({
 })
 
 
-  const User = new model('User', userSchema)
+  export const User = new model('User', userSchema)
 
-  exports.default = {User}
+  
