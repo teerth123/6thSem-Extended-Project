@@ -2,7 +2,6 @@
 import jwt from "jsonwebtoken";
 
 export function verifyToken(req, res, next) {
-    // Get secret inside the function, not at module level
     const secret = process.env.secret;
     
     if (!secret) {

@@ -1,3 +1,5 @@
+import { Schema, model } from "mongoose";
+import mongoose from "mongoose";
 const messageSchema = new mongoose.Schema(
     {
       conversationId: {
@@ -31,7 +33,7 @@ const messageSchema = new mongoose.Schema(
     { timestamps: true }
   );
   
-    const Message = new model('Message', messageSchema)
+    // const Message = new model('Message', messageSchema)
   
 
-    exports.default = {Message}
+export const Message = new model('Message', messageSchema)

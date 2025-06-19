@@ -45,7 +45,6 @@ const VideoTrackingSchema = new mongoose.Schema(
     { timestamps: true }
   );
   
-  // Create a compound index for videoId and userId
   VideoTrackingSchema.index({ videoId: 1, userId: 1 });
 
   const Videotracking = new model('Videotracking', VideoTrackingSchema)

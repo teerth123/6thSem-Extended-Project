@@ -67,8 +67,8 @@ userRouter.get(`/user/:id/profile`, async(req , res)=>{
                 worksAt:user.worksAt,
             })
         }
-    }catch{
-        console.error("error while finding profile info")
+    }catch(e){
+        console.error(e+" error while finding profile info")
     }
 })
 
@@ -101,4 +101,3 @@ userRouter.put('/user/:id/update', verifyToken, async (req, res) => {
         res.status(500).json({ msg: 'Server error' });
     }
 });
-
