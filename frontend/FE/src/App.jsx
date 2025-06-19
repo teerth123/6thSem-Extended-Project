@@ -1,30 +1,32 @@
-// App.js
-
 import './App.css';
-import { Routes, Route, BrowserRouter, useNavigate } from "react-router-dom";
+import './index.css'
+import {Routes, Route, BrowserRouter , useNavigate} from "react-router-dom"
 import Login from '../component/Login';
+import LandingPage from './pages/LandingPage';
+import ProfilePage from './pages/ProfilePage';
+import DirectoryPage from './pages/DirectoryPage';
+import MessagingPage from './pages/MessagingPage';
+import LoginPage from './pages/Login';
+import SignupPage from './pages/Signup';
 
-function Home() {
-  const nav = useNavigate();
-  return (
-    <div className='landingPage w-screen'>
-      <div className='navBar flex justify-around w-screen bg-red-500 text-white p-4'>
-        <button>Sign up</button>
-        <button>Login</button>
-      </div>
-    </div>
-  );
-}
 
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path='/' element={<Home />} />
-        <Route path='/login' element={<Login />} />
-      </Routes>
-    </BrowserRouter>
-  );
+function App(){
+  
+  return(
+    <>
+      <BrowserRouter>
+          <Routes>
+            <Route path='/' element={<LandingPage/>}/>
+            <Route path='/pfp' element={<ProfilePage/>}/>
+            <Route path='/home' element={<DirectoryPage/>}/>
+            <Route path='/msg' element={<MessagingPage/>}/>
+            <Route path='/login' element={<LoginPage/>}/>
+            <Route path='/signup' element={<SignupPage/>}/>
+
+          </Routes>
+      </BrowserRouter>  
+    </>
+  )
 }
 
 export default App;

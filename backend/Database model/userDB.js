@@ -54,10 +54,14 @@ const userSchema = new Schema({
     worksAt:{
         type:String,
         required:true
-    }
+    },
+    connectionRequests: {
+        type: [mongoose.Schema.Types.ObjectId],
+        ref: 'User',
+        default: [],
+    },
 })
 
 
   export const User = new model('User', userSchema)
 
-  
