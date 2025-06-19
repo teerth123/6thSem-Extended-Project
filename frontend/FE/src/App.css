@@ -1,13 +1,15 @@
 /* App.css */
 
 #root {
-  max-width: 1200px;
+  max-width: 100%;
   margin: 0 auto;
-  padding-block: 2rem;
+  /* padding:0 2rem; */
+  
+  overflow: hidden;
   background-color: #f0f0f0;
-  text-align: center;
+  /* text-align: center; */
   min-height: 100vh;
-  box-sizing: border-box;
+  /* box-sizing: border-box; */
 }
 
 /* Optional: Apply a system font stack */
