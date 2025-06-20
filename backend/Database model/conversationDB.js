@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+import { Schema, model } from "mongoose";
 
 const ConversationSchema = new mongoose.Schema(
     {
@@ -23,16 +25,7 @@ const ConversationSchema = new mongoose.Schema(
     { timestamps: true }
   );
   
-  // Ensure we only have one conversation between the same pair of participants
-  // But allow a participant to be in multiple conversations with different users
-  // Remove the previous unique index
+  // Create a compound index for participants but not unique to avoid conflicts
   ConversationSchema.index({ participants: 1 });
-  
-  // Add a custom compound index
-  ConversationSchema.index({ "participants.0": 1, "participants.1": 1 }, { unique: true });
 
-
-  const Conversation = new model('Conversation', ConversationSchema)
-
-
-  exports.default = {Conversation}
+  export const Conversation = new model('Conversation', ConversationSchema);

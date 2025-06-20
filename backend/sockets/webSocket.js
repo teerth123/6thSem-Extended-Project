@@ -1,4 +1,5 @@
 import { Message } from "../Database model/messageDB.js";
+import { Conversation } from "../Database model/conversationDB.js";
 import { User } from "../Database model/userDB.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
@@ -24,6 +25,10 @@ export function setupWSS(wss) {
                     if (user) {
                         clients.set(socket, user._id);
                         console.log(`${user.username} authenticated`);
+                        socket.send(JSON.stringify({
+                            type: "auth-success",
+                            payload: { message: "Authentication successful" }
+                        }));
                     } else {
                         console.log("User not found");
                         socket.close();
@@ -38,7 +43,10 @@ export function setupWSS(wss) {
                     }
 
                     const { conversationId, receiverId, text, type: msgType, fileUrl } = payload;
-                    if (!receiverId) return;
+                    if (!conversationId || !text) {
+                        console.log("Missing required fields");
+                        return;
+                    }
 
                     const newMsg = await Message.create({
                         conversationId,
@@ -49,16 +57,23 @@ export function setupWSS(wss) {
                         read: false
                     });
 
-                    // Send to all sockets of sender and receiver
+                    // Update conversation's last message
+                    await Conversation.findByIdAndUpdate(conversationId, {
+                        lastMessage: text,
+                        lastMessageTime: new Date()
+                    });
+
+                    // Populate the message with sender info
+                    const populatedMsg = await Message.findById(newMsg._id).populate('sender', 'username');
+
+                    // Send to all sockets of participants in this conversation
+                    const conversation = await Conversation.findById(conversationId);
                     for (let [sock, uid] of clients.entries()) {
-                        if (
-                            uid.toString() === receiverId.toString() ||
-                            uid.toString() === senderId.toString()
-                        ) {
+                        if (conversation.participants.some(p => p.toString() === uid.toString())) {
                             sock.send(
                                 JSON.stringify({
                                     type: "new-message",
-                                    payload: newMsg
+                                    payload: populatedMsg
                                 })
                             );
                         }
@@ -66,6 +81,10 @@ export function setupWSS(wss) {
                 }
             } catch (e) {
                 console.error("WebSocket error:", e.message);
+                socket.send(JSON.stringify({
+                    type: "error",
+                    payload: { message: e.message }
+                }));
             }
         });
 

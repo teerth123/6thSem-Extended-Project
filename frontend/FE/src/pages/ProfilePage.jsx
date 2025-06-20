@@ -94,7 +94,7 @@ const ProfilePage = () => {
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-slate-900 py-8">
+      <div className="min-h-screen bg-slate-900 py-8 pt-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-2xl p-8 mb-8 border border-slate-600">

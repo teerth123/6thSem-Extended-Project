@@ -3,6 +3,8 @@ dotevn.config()
 import express from "express"
 import jwt from "jsonwebtoken"
 import {User} from "../Database model/userDB.js"
+import {Message} from "../Database model/messageDB.js"
+import {Conversation} from "../Database model/conversationDB.js"
 import { verifyToken } from "../middleware/verifyToken.js"
 const secret= process.env.secret
 export const userRouter = express.Router()
@@ -268,6 +270,93 @@ userRouter.post('/connection-requests/send', verifyToken, async (req, res) => {
         res.json({ msg: 'Connection request sent successfully' });
     } catch (error) {
         console.error('Error sending connection request:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Find or create a conversation between two users
+userRouter.get('/conversations/:contactId', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { contactId } = req.params;
+
+        // Sort participant IDs to ensure consistent conversation lookup
+        const participants = [userId, contactId].sort();
+        
+        let conversation = await Conversation.findOne({
+            participants: { $all: participants, $size: 2 }
+        });
+
+        if (!conversation) {
+            try {
+                // Create new conversation if it doesn't exist
+                conversation = await Conversation.create({
+                    participants: participants
+                });
+            } catch (createError) {
+                // If creation fails due to duplicate key, try to find the existing one
+                if (createError.code === 11000) {
+                    conversation = await Conversation.findOne({
+                        participants: { $all: participants, $size: 2 }
+                    });
+                    if (!conversation) {
+                        throw new Error('Failed to create or find conversation');
+                    }
+                } else {
+                    throw createError;
+                }
+            }
+        }
+
+        res.json(conversation);
+    } catch (error) {
+        console.error('Error finding/creating conversation:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+});
+
+// Fetch messages for a specific conversation
+userRouter.get('/messages/:conversationId', verifyToken, async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const messages = await Message.find({ conversationId })
+            .populate('sender', 'username')
+            .sort({ createdAt: 1 });
+
+        res.json(messages);
+    } catch (error) {
+        console.error('Error fetching messages:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Send a new message
+userRouter.post('/messages', verifyToken, async (req, res) => {
+    try {
+        const senderId = req.user._id;
+        const { conversationId, text, type = 'text', fileUrl } = req.body;
+
+        const newMessage = await Message.create({
+            conversationId,
+            sender: senderId,
+            text,
+            type,
+            fileUrl,
+            read: false
+        });
+
+        // Update conversation's last message
+        await Conversation.findByIdAndUpdate(conversationId, {
+            lastMessage: text,
+            lastMessageTime: new Date()
+        });
+
+        const populatedMessage = await Message.findById(newMessage._id)
+            .populate('sender', 'username');
+
+        res.json(populatedMessage);
+    } catch (error) {
+        console.error('Error sending message:', error);
         res.status(500).json({ msg: 'Server error' });
     }
 });

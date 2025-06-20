@@ -41,11 +41,11 @@ const userSchema = new Schema({
     shortBio:String,
     connections: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Doctor'
+        ref: 'User'
     }],
     pendingConnections: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Doctor'
+        ref: 'User'
     }],
     createdAt: {
         type: Date,
