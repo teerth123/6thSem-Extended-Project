@@ -52,7 +52,7 @@ const LandingPage = () => {
   const handleGetStarted = () => {
     const token = localStorage.getItem('token');
     if (token) {
-      nav('/profile');
+      nav('/pfp');
     } else {
       nav('/signup');
     }
@@ -197,7 +197,7 @@ const LandingPage = () => {
           </div>
           <div className="mt-12">
             <button
-              onClick={()=>nav("/login")}
+              onClick={handleGetStarted}
               className="inline-flex items-center space-x-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-12 py-6 rounded-xl font-semibold text-xl hover:from-cyan-600 hover:to-blue-700 transform hover:scale-105 transition-all duration-300 shadow-xl hover:shadow-2xl"
             >
               <span>Start Connecting Today</span>

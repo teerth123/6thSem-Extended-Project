@@ -260,6 +260,11 @@ userRouter.post('/connection-requests/send', verifyToken, async (req, res) => {
             return res.status(404).json({ msg: 'User or recipient not found' });
         }
 
+        // Check if users are already connected
+        if (user.connections.includes(recipientId)) {
+            return res.status(400).json({ msg: 'Users are already connected' });
+        }
+
         if (recipient.connectionRequests.includes(userId)) {
             return res.status(400).json({ msg: 'Connection request already sent' });
         }

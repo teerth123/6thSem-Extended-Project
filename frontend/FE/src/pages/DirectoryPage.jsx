@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, Filter, MapPin, Star, MessageCircle, User, Stethoscope, Building } from 'lucide-react';
 import Navbar from '../Component/Navbar';
+import Toast from '../Component/Toast';
 
 const DirectoryPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [selectedSpecialization, setSelectedSpecialization] = useState('all');
   const [professionals, setProfessionals] = useState([]);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     const fetchProfessionals = async () => {
@@ -26,6 +28,14 @@ const DirectoryPage = () => {
     fetchProfessionals();
   }, []);
 
+  const showToast = (message, type) => {
+    setToast({ message, type });
+  };
+
+  const hideToast = () => {
+    setToast(null);
+  };
+
   const handleSendRequest = async (recipientId) => {
     try {
       await axios.post(
@@ -37,10 +47,11 @@ const DirectoryPage = () => {
           },
         }
       );
-      alert('Connection request sent successfully!');
+      showToast('Connection request sent successfully!', 'success');
     } catch (error) {
       console.error('Error sending connection request:', error);
-      alert('Failed to send connection request.');
+      const errorMessage = error.response?.data?.msg || 'Failed to send connection request';
+      showToast(errorMessage, 'error');
     }
   };
 
@@ -211,6 +222,15 @@ const DirectoryPage = () => {
           )}
         </div>
       </div>
+      
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={hideToast}
+        />
+      )}
     </>
   );
 };

@@ -31,13 +31,16 @@ const MessagingPage = () => {
   const messagesEndRef = useRef(null);
 
   const fetchContacts = async () => {
-
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get('http://localhost:3000/backend/v1/contacts', {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setContacts(response.data);
+      // Filter out duplicate connections
+      const uniqueContacts = response.data.filter((contact, index, self) =>
+        index === self.findIndex((c) => c._id === contact._id)
+      );
+      setContacts(uniqueContacts);
     } catch (error) {
       console.error('Error fetching contacts:', error);
     }
