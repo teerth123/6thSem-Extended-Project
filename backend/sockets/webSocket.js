@@ -43,7 +43,7 @@ export function setupWSS(wss) {
                     }
 
                     const { conversationId, receiverId, text, type: msgType, fileUrl } = payload;
-                    if (!conversationId || !text) {
+                    if (!conversationId || (!text && !fileUrl)) {
                         console.log("Missing required fields");
                         return;
                     }
@@ -51,15 +51,16 @@ export function setupWSS(wss) {
                     const newMsg = await Message.create({
                         conversationId,
                         sender: senderId,
-                        text,
+                        text: text || '',
                         type: msgType || "text",
-                        fileUrl,
+                        fileUrl: fileUrl || undefined,
                         read: false
                     });
 
                     // Update conversation's last message
+                    const lastMessage = msgType === 'text' ? text : `Sent a ${msgType}`;
                     await Conversation.findByIdAndUpdate(conversationId, {
-                        lastMessage: text,
+                        lastMessage: lastMessage,
                         lastMessageTime: new Date()
                     });
 

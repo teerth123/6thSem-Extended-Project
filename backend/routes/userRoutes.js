@@ -2,13 +2,46 @@ import dotevn from "dotenv"
 dotevn.config()
 import express from "express"
 import jwt from "jsonwebtoken"
+import multer from "multer"
+import { v2 as cloudinary } from "cloudinary"
+import streamifier from "streamifier"
 import {User} from "../Database model/userDB.js"
 import {Message} from "../Database model/messageDB.js"
 import {Conversation} from "../Database model/conversationDB.js"
+import {InventoryItem, Order, InventoryTransaction} from "../Database model/inventoryDB.js"
 import { verifyToken } from "../middleware/verifyToken.js"
+
 const secret= process.env.secret
 export const userRouter = express.Router()
 
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME || "deqnf0a9w",
+  api_key: process.env.CLOUD_API_KEY || "898792876773274",
+  api_secret: process.env.CLOUD_API_SECRET || "EIDrDnm5yaXfVO7SougS77OJmi4",
+});
+
+// Multer configuration for handling file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept images, videos, and documents
+    if (file.mimetype.startsWith('image/') || 
+        file.mimetype.startsWith('video/') || 
+        file.mimetype.startsWith('audio/') ||
+        file.mimetype === 'application/pdf' ||
+        file.mimetype.includes('document') ||
+        file.mimetype.includes('text')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type'), false);
+    }
+  }
+});
 
 userRouter.post("/signin", async (req, res) => {
     console.log(req.body)
@@ -362,6 +395,413 @@ userRouter.post('/messages', verifyToken, async (req, res) => {
         res.json(populatedMessage);
     } catch (error) {
         console.error('Error sending message:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Upload a file (image, video, document) to Cloudinary
+userRouter.post('/upload', verifyToken, upload.single('file'), async (req, res) => {
+    try {
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ msg: 'No file uploaded' });
+        }
+
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload_stream(
+            { resource_type: 'auto' },
+            (error, result) => {
+                if (error) {
+                    return res.status(500).json({ msg: 'Error uploading file', error });
+                }
+                res.json({ 
+                    msg: 'File uploaded successfully', 
+                    url: result.secure_url,
+                    public_id: result.public_id 
+                });
+            }
+        );
+
+        // Read the file buffer and pipe it to Cloudinary
+        streamifier.createReadStream(file.buffer).pipe(result);
+
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Delete a file from Cloudinary
+userRouter.delete('/upload', verifyToken, async (req, res) => {
+    try {
+        const { public_id } = req.body;
+
+        if (!public_id) {
+            return res.status(400).json({ msg: 'Public ID is required' });
+        }
+
+        // Delete from Cloudinary
+        await cloudinary.uploader.destroy(public_id);
+
+        res.json({ msg: 'File deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting file:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// ==================== INVENTORY MANAGEMENT ROUTES ====================
+
+// Get all inventory items (for MRs to manage their catalog)
+userRouter.get('/inventory/items', verifyToken, async (req, res) => {
+    try {
+        const { category, search } = req.query;
+        let query = {};
+        
+        if (category && category !== 'all') {
+            query.category = category;
+        }
+        
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+                { manufacturer: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const items = await InventoryItem.find(query).sort({ createdAt: -1 });
+        res.json(items);
+    } catch (error) {
+        console.error('Error fetching inventory items:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Create new inventory item (MR only)
+userRouter.post('/inventory/items', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (user.role !== 'mr') {
+            return res.status(403).json({ msg: 'Only Medical Representatives can add inventory items' });
+        }
+
+        const newItem = await InventoryItem.create(req.body);
+        res.status(201).json(newItem);
+    } catch (error) {
+        console.error('Error creating inventory item:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Update inventory item (MR only)
+userRouter.put('/inventory/items/:id', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (user.role !== 'mr') {
+            return res.status(403).json({ msg: 'Only Medical Representatives can update inventory items' });
+        }
+
+        const updatedItem = await InventoryItem.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true }
+        );
+
+        if (!updatedItem) {
+            return res.status(404).json({ msg: 'Inventory item not found' });
+        }
+
+        res.json(updatedItem);
+    } catch (error) {
+        console.error('Error updating inventory item:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Delete inventory item (MR only)
+userRouter.delete('/inventory/items/:id', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (user.role !== 'mr') {
+            return res.status(403).json({ msg: 'Only Medical Representatives can delete inventory items' });
+        }
+
+        const deletedItem = await InventoryItem.findByIdAndDelete(req.params.id);
+        
+        if (!deletedItem) {
+            return res.status(404).json({ msg: 'Inventory item not found' });
+        }
+
+        res.json({ msg: 'Inventory item deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting inventory item:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get orders for a specific conversation
+userRouter.get('/inventory/orders/:conversationId', verifyToken, async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const orders = await Order.find({ conversationId })
+            .populate('doctorId', 'username email')
+            .populate('mrId', 'username email')
+            .populate('items.inventoryItem')
+            .sort({ createdAt: -1 });
+
+        res.json(orders);
+    } catch (error) {
+        console.error('Error fetching orders:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Create new order
+userRouter.post('/inventory/orders', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const user = await User.findById(userId);
+        const { conversationId, items, deliveryAddress, notes, requiredDate } = req.body;
+
+        console.log('Creating order with data:', { conversationId, items, deliveryAddress, notes, requiredDate });
+
+        // Validate required fields
+        if (!conversationId) {
+            return res.status(400).json({ msg: 'Conversation ID is required' });
+        }
+
+        if (!items || items.length === 0) {
+            return res.status(400).json({ msg: 'At least one item is required' });
+        }
+
+        // Validate that all items have inventoryItem and quantity
+        for (let item of items) {
+            if (!item.inventoryItem || !item.quantity || item.quantity <= 0) {
+                return res.status(400).json({ msg: 'All items must have a valid inventory item and quantity greater than 0' });
+            }
+        }
+
+        // Get conversation to determine participants
+        const conversation = await Conversation.findById(conversationId).populate('participants', 'role username');
+        if (!conversation) {
+            return res.status(404).json({ msg: 'Conversation not found' });
+        }
+
+        console.log('Conversation participants:', conversation.participants);
+
+        // Find doctor and MR in conversation participants
+        const doctor = conversation.participants.find(p => p.role === 'doctor');
+        const mr = conversation.participants.find(p => p.role === 'mr');
+
+        console.log('Found doctor:', doctor);
+        console.log('Found MR:', mr);
+
+        // If we don't have both roles, we'll still allow the order but assign roles based on current user
+        let doctorId, mrId;
+
+        if (doctor && mr) {
+            // Ideal case: conversation has both doctor and MR
+            doctorId = doctor._id;
+            mrId = mr._id;
+        } else if (user.role === 'doctor') {
+            // Current user is doctor, find any MR in participants or use current user as placeholder
+            doctorId = userId;
+            mrId = mr ? mr._id : userId; // Use MR if available, otherwise placeholder
+        } else if (user.role === 'mr') {
+            // Current user is MR, find any doctor in participants or use current user as placeholder
+            mrId = userId;
+            doctorId = doctor ? doctor._id : userId; // Use doctor if available, otherwise placeholder
+        } else {
+            // Fallback: use current user for both (this shouldn't happen in normal flow)
+            doctorId = userId;
+            mrId = userId;
+        }
+
+        // Process items and calculate totals
+        const processedItems = await Promise.all(items.map(async (item) => {
+            const inventoryItem = await InventoryItem.findById(item.inventoryItem);
+            if (!inventoryItem) {
+                throw new Error(`Inventory item ${item.inventoryItem} not found`);
+            }
+            
+            return {
+                inventoryItem: item.inventoryItem,
+                itemName: inventoryItem.name,
+                quantity: item.quantity,
+                unitPrice: inventoryItem.unitPrice,
+                totalPrice: item.quantity * inventoryItem.unitPrice
+            };
+        }));
+
+        // Generate order number manually as backup
+        const orderCount = await Order.countDocuments();
+        const orderNumber = `ORD-${Date.now()}-${String(orderCount + 1).padStart(4, '0')}`;
+
+        const newOrder = await Order.create({
+            orderNumber: orderNumber, // Explicitly set the order number
+            doctorId: doctorId,
+            mrId: mrId,
+            conversationId,
+            items: processedItems,
+            deliveryAddress: deliveryAddress || '',
+            notes: notes || '',
+            requiredDate: requiredDate ? new Date(requiredDate) : undefined
+        });
+
+        // Create transaction record
+        await InventoryTransaction.create({
+            orderId: newOrder._id,
+            userId: userId,
+            transactionType: 'order_placed',
+            description: `Order ${newOrder.orderNumber} placed by ${user.username}`
+        });
+
+        const populatedOrder = await Order.findById(newOrder._id)
+            .populate('doctorId', 'username email')
+            .populate('mrId', 'username email')
+            .populate('items.inventoryItem');
+
+        console.log('Order created successfully:', populatedOrder);
+
+        res.status(201).json(populatedOrder);
+    } catch (error) {
+        console.error('Error creating order:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+});
+
+// Update order status
+userRouter.put('/inventory/orders/:id/status', verifyToken, async (req, res) => {
+    try {
+        const { status } = req.body;
+        const userId = req.user._id;
+        const user = await User.findById(userId);
+
+        const order = await Order.findById(req.params.id);
+        if (!order) {
+            return res.status(404).json({ msg: 'Order not found' });
+        }
+
+        // Check permissions
+        if (!order.doctorId.equals(userId) && !order.mrId.equals(userId)) {
+            return res.status(403).json({ msg: 'Not authorized to update this order' });
+        }
+
+        // Role-based status update permissions
+        if (user.role === 'mr') {
+            // MRs can update: pending -> confirmed/cancelled, confirmed -> shipped
+            const allowedTransitions = {
+                'pending': ['confirmed', 'cancelled'],
+                'confirmed': ['shipped', 'cancelled'],
+                'shipped': [], // MRs cannot update from shipped
+                'delivered': [], // MRs cannot update from delivered
+                'received': [] // MRs cannot update from received
+            };
+            
+            if (!allowedTransitions[order.status]?.includes(status)) {
+                return res.status(400).json({ 
+                    msg: `MRs cannot change order status from ${order.status} to ${status}` 
+                });
+            }
+        } else if (user.role === 'doctor') {
+            // Doctors can only mark shipped orders as received
+            if (order.status === 'shipped' && status === 'received') {
+                // This is allowed
+            } else if (order.status === 'pending' && status === 'cancelled') {
+                // Doctors can cancel pending orders
+            } else {
+                return res.status(400).json({ 
+                    msg: `Doctors can only mark shipped orders as received or cancel pending orders` 
+                });
+            }
+        }
+
+        order.status = status;
+        await order.save();
+
+        // Create transaction record
+        const actionDescription = status === 'received' ? 'marked as received' : status;
+        await InventoryTransaction.create({
+            orderId: order._id,
+            userId: userId,
+            transactionType: `order_${status}`,
+            description: `Order ${order.orderNumber} ${actionDescription} by ${user.username}`
+        });
+
+        const populatedOrder = await Order.findById(order._id)
+            .populate('doctorId', 'username email')
+            .populate('mrId', 'username email')
+            .populate('items.inventoryItem');
+
+        res.json(populatedOrder);
+    } catch (error) {
+        console.error('Error updating order status:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get order by ID
+userRouter.get('/inventory/orders/single/:id', verifyToken, async (req, res) => {
+    try {
+        const order = await Order.findById(req.params.id)
+            .populate('doctorId', 'username email')
+            .populate('mrId', 'username email')
+            .populate('items.inventoryItem');
+
+        if (!order) {
+            return res.status(404).json({ msg: 'Order not found' });
+        }
+
+        // Check permissions
+        const userId = req.user._id;
+        if (!order.doctorId._id.equals(userId) && !order.mrId._id.equals(userId)) {
+            return res.status(403).json({ msg: 'Not authorized to view this order' });
+        }
+
+        res.json(order);
+    } catch (error) {
+        console.error('Error fetching order:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get user's orders (both as doctor and MR)
+userRouter.get('/inventory/orders/user', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { status, page = 1, limit = 10 } = req.query;
+
+        let query = {
+            $or: [
+                { doctorId: userId },
+                { mrId: userId }
+            ]
+        };
+
+        if (status && status !== 'all') {
+            query.status = status;
+        }
+
+        const orders = await Order.find(query)
+            .populate('doctorId', 'username email')
+            .populate('mrId', 'username email')
+            .populate('items.inventoryItem')
+            .sort({ createdAt: -1 })
+            .limit(limit * 1)
+            .skip((page - 1) * limit);
+
+        const total = await Order.countDocuments(query);
+
+        res.json({
+            orders,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+            total
+        });
+    } catch (error) {
+        console.error('Error fetching user orders:', error);
         res.status(500).json({ msg: 'Server error' });
     }
 });
