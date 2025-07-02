@@ -16,14 +16,34 @@ const ProfilePage = () => {
     const fetchProfile = async () => {
       try {
         const token = localStorage.getItem('token');
-        const userId = localStorage.getItem('userId'); // ✅ Get userId from here
+        const userId = localStorage.getItem('userId');
 
         const response = await axios.get(`http://localhost:3000/backend/v1/user/${userId}/profile`, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        setProfile(response.data);
-        setEditedProfile(response.data);
+        // Map backend fields to frontend expected fields
+        const mappedProfile = {
+          username: response.data.username,
+          name: `${response.data.firstname} ${response.data.lastname}`,
+          firstname: response.data.firstname,
+          lastname: response.data.lastname,
+          email: response.data.email,
+          phone: response.data.phone || 'Not provided',
+          location: response.data.location || 'Not provided',
+          role: response.data.role,
+          specialization: response.data.role === 'doctor' ? 'Medical Professional' : 'Medical Representative',
+          experience: `${response.data.yearsofExperience} years`,
+          hospital: response.data.worksAt,
+          bio: response.data.shortBio || 'No bio provided',
+          education: 'Not provided',
+          certifications: 'Not provided',
+          yearsofExperience: response.data.yearsofExperience,
+          worksAt: response.data.worksAt
+        };
+
+        setProfile(mappedProfile);
+        setEditedProfile(mappedProfile);
       } catch (error) {
         console.error('Error fetching profile:', error);
       }
@@ -49,13 +69,29 @@ const ProfilePage = () => {
   const handleSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put('http://localhost:3000/backend/v1/profile', editedProfile, {
+      const userId = localStorage.getItem('userId');
+      
+      // Map frontend fields back to backend expected fields
+      const updateData = {
+        username: editedProfile.username,
+        firstname: editedProfile.firstname,
+        lastname: editedProfile.lastname,
+        email: editedProfile.email,
+        yearsofExperience: editedProfile.yearsofExperience,
+        worksAt: editedProfile.worksAt,
+        shortBio: editedProfile.bio
+      };
+
+      await axios.put(`http://localhost:3000/backend/v1/user/${userId}/update`, updateData, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
       setProfile(editedProfile);
       setIsEditing(false);
+      alert('Profile updated successfully!');
     } catch (error) {
       console.error('Error saving profile:', error);
+      alert('Failed to update profile. Please try again.');
     }
   };
 
