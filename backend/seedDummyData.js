@@ -6,6 +6,7 @@ import { Message } from "./Database model/messageDB.js";
 import { InventoryItem, Order, InventoryTransaction } from "./Database model/inventoryDB.js";
 import { Appointment } from "./Database model/appointmentDB.js";
 import { VideoTracking } from "./Database model/videotrackingDB.js";
+import { SharedVideoTracking } from "./Database model/sharedVideoTrackingDB.js";
 
 dotenv.config();
 
@@ -228,6 +229,7 @@ async function seedDummyData() {
     await InventoryTransaction.deleteMany({});
     await Appointment.deleteMany({});
     await VideoTracking.deleteMany({});
+    await SharedVideoTracking.deleteMany({});
     
     // Drop collections to reset indexes
     try {
@@ -351,6 +353,14 @@ async function seedDummyData() {
           text: "Perfect! I can arrange those items for you. Let me prepare a quote.",
           type: "text",
           read: false
+        }),
+        new Message({
+          conversationId: conv1._id,
+          sender: medicalReps[0]._id,
+          text: "Here's a training video on proper injection techniques that might be helpful for your staff.",
+          type: "video",
+          fileUrl: "https://res.cloudinary.com/demo/video/upload/v1234567890/medical_training_injection.mp4",
+          read: false
         })
       );
 
@@ -370,6 +380,14 @@ async function seedDummyData() {
             sender: doctors[1]._id,
             text: "Thank you for the quick delivery! Everything looks great.",
             type: "text",
+            read: false
+          }),
+          new Message({
+            conversationId: conv2._id,
+            sender: medicalReps[1]._id,
+            text: "Here's a demonstration video for the new blood pressure monitors.",
+            type: "video",
+            fileUrl: "https://res.cloudinary.com/demo/video/upload/v1234567891/bp_monitor_demo.mp4",
             read: false
           })
         );
@@ -715,6 +733,81 @@ async function seedDummyData() {
     const savedVideoTracking = await VideoTracking.insertMany(videoTrackingData);
     console.log(`✅ Created ${savedVideoTracking.length} video tracking records`);
 
+    // 10. Create Shared Video Tracking Data
+    const sharedVideoTrackingData = [];
+    
+    // Find video messages
+    const videoMessages = savedMessages.filter(msg => msg.type === 'video');
+    
+    if (videoMessages.length > 0) {
+      // Track viewing progress for the first video (injection training)
+      const injectionVideoMsg = videoMessages[0];
+      if (injectionVideoMsg) {
+        const tracking1 = new SharedVideoTracking({
+          messageId: injectionVideoMsg._id,
+          senderId: injectionVideoMsg.sender, // Medical Rep
+          receiverId: doctors[0]._id, // Doctor receiving the video
+          conversationId: injectionVideoMsg.conversationId,
+          videoUrl: injectionVideoMsg.fileUrl,
+          currentTime: 245, // 4 minutes 5 seconds watched
+          duration: 420, // 7 minutes total
+          watchPercentage: Math.round((245 / 420) * 100), // Calculate manually
+          totalWatchTime: 245,
+          firstWatchedAt: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
+          lastWatchedAt: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
+          viewCount: 12 // 12 five-second intervals watched
+        });
+        sharedVideoTrackingData.push(tracking1);
+      }
+
+      // Track viewing progress for the second video (BP monitor demo)
+      if (videoMessages.length > 1) {
+        const bpVideoMsg = videoMessages[1];
+        const tracking2 = new SharedVideoTracking({
+          messageId: bpVideoMsg._id,
+          senderId: bpVideoMsg.sender, // Medical Rep
+          receiverId: doctors[1]._id, // Doctor receiving the video
+          conversationId: bpVideoMsg.conversationId,
+          videoUrl: bpVideoMsg.fileUrl,
+          currentTime: 180, // 3 minutes watched
+          duration: 300, // 5 minutes total
+          watchPercentage: Math.round((180 / 300) * 100), // Calculate manually
+          totalWatchTime: 180,
+          firstWatchedAt: new Date(Date.now() - 1000 * 60 * 60 * 1), // 1 hour ago
+          lastWatchedAt: new Date(Date.now() - 1000 * 60 * 15), // 15 minutes ago
+          viewCount: 8 // 8 five-second intervals watched
+        });
+        sharedVideoTrackingData.push(tracking2);
+      }
+
+      // Add a completed video watch
+      if (videoMessages.length > 0) {
+        const completedVideoMsg = videoMessages[0];
+        // Same video watched by another doctor (if available)
+        if (doctors.length > 2) {
+          const tracking3 = new SharedVideoTracking({
+            messageId: completedVideoMsg._id,
+            senderId: completedVideoMsg.sender,
+            receiverId: doctors[2]._id, // Different doctor watching same video
+            conversationId: completedVideoMsg.conversationId,
+            videoUrl: completedVideoMsg.fileUrl,
+            currentTime: 420, // Fully watched
+            duration: 420,
+            watchPercentage: 100, // Completed
+            isCompleted: true,
+            totalWatchTime: 420,
+            firstWatchedAt: new Date(Date.now() - 1000 * 60 * 60 * 6), // 6 hours ago
+            lastWatchedAt: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
+            viewCount: 84 // Full video watched
+          });
+          sharedVideoTrackingData.push(tracking3);
+        }
+      }
+    }
+
+    const savedSharedVideoTracking = await SharedVideoTracking.insertMany(sharedVideoTrackingData);
+    console.log(`✅ Created ${savedSharedVideoTracking.length} shared video tracking records`);
+
     // Summary
     console.log("\n🎉 DUMMY DATA SEEDING COMPLETED!");
     console.log("================================");
@@ -728,6 +821,7 @@ async function seedDummyData() {
     console.log(`📊 Transactions: ${savedTransactions.length}`);
     console.log(`📅 Appointments: ${savedAppointments.length}`);
     console.log(`🎥 Video Tracking: ${savedVideoTracking.length}`);
+    console.log(`📺 Shared Video Tracking: ${savedSharedVideoTracking.length}`);
     console.log("================================");
 
     // Display sample data
@@ -744,6 +838,11 @@ async function seedDummyData() {
     console.log("\n📅 SAMPLE APPOINTMENTS:");
     savedAppointments.forEach(appointment => {
       console.log(`  - ${appointment.title} - ${appointment.status} (${appointment.appointmentDate.toDateString()})`);
+    });
+
+    console.log("\n📺 SAMPLE SHARED VIDEO TRACKING:");
+    savedSharedVideoTracking.forEach(tracking => {
+      console.log(`  - Video: ${tracking.watchPercentage}% watched - ${tracking.isCompleted ? 'Completed' : 'In Progress'}`);
     });
 
   } catch (error) {

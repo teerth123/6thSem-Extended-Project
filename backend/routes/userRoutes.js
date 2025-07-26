@@ -1,5 +1,5 @@
-import dotevn from "dotenv"
-dotevn.config()
+import dotenv from "dotenv"
+dotenv.config()
 import express from "express"
 import jwt from "jsonwebtoken"
 import multer from "multer"
@@ -9,6 +9,7 @@ import {User} from "../Database model/userDB.js"
 import {Message} from "../Database model/messageDB.js"
 import {Conversation} from "../Database model/conversationDB.js"
 import {InventoryItem, Order, InventoryTransaction} from "../Database model/inventoryDB.js"
+import {SharedVideoTracking} from "../Database model/sharedVideoTrackingDB.js"
 import { verifyToken } from "../middleware/verifyToken.js"
 
 const secret= process.env.secret
@@ -43,6 +44,33 @@ const upload = multer({
   }
 });
 
+userRouter.post("/signup", async (req, res) => {
+    console.log(req.body)
+    
+    const { username, firstname, lastname, email, password, role, yearsofExperience, shortBio, worksAt } = req.body
+
+    try {
+        const check = await User.findOne({ email: email })
+
+        if (check) {
+            res.json({
+                msg: "user already exists"
+            })
+        } else {
+            
+            const newUser = await User.create({ username, firstname, lastname, email, password, role, yearsofExperience, shortBio, worksAt })
+            const token = jwt.sign({_id:newUser._id}, secret, { expiresIn: "30d" })
+            res.json({
+                token,
+                userId: newUser._id // Include user ID in the response
+            })
+        }
+    } catch(e) {
+        console.error( e + "error while signing up")
+        res.status(500).json({ error: "Error creating user" })
+    }
+})
+
 userRouter.post("/signin", async (req, res) => {
     console.log(req.body)
     
@@ -66,8 +94,8 @@ userRouter.post("/signin", async (req, res) => {
         }
     } catch(e) {
         console.error( e + "error while signing in")
+        res.status(500).json({ error: "Error creating user" })
     }
-
 })
 
 userRouter.post("/login", async (req, res) => {
@@ -802,6 +830,249 @@ userRouter.get('/inventory/orders/user', verifyToken, async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching user orders:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// =====================================================
+// SHARED VIDEO TRACKING ROUTES
+// =====================================================
+
+// Initialize video tracking when receiver first opens a shared video
+userRouter.post("/video/initialize", verifyToken, async (req, res) => {
+    try {
+        const { messageId, videoUrl, duration } = req.body;
+        const userId = req.user.id;
+
+        // Get the message to find sender and conversation
+        const message = await Message.findById(messageId)
+            .populate('conversationId');
+        
+        if (!message) {
+            return res.status(404).json({ msg: 'Message not found' });
+        }
+
+        // Verify user is part of the conversation
+        const conversation = await Conversation.findById(message.conversationId);
+        if (!conversation.participants.includes(userId)) {
+            return res.status(403).json({ msg: 'Not authorized to view this video' });
+        }
+
+        // Check if tracking already exists
+        let tracking = await SharedVideoTracking.findOne({
+            messageId,
+            receiverId: userId,
+            conversationId: message.conversationId
+        });
+
+        if (!tracking) {
+            // Create new tracking record
+            tracking = new SharedVideoTracking({
+                messageId,
+                senderId: message.sender,
+                receiverId: userId,
+                conversationId: message.conversationId,
+                videoUrl,
+                duration,
+                firstWatchedAt: new Date()
+            });
+        } else {
+            // Update duration if it changed
+            tracking.duration = duration;
+        }
+
+        await tracking.save();
+
+        res.json({
+            msg: 'Video tracking initialized',
+            tracking: {
+                currentTime: tracking.currentTime,
+                watchPercentage: tracking.watchPercentage,
+                isCompleted: tracking.isCompleted
+            }
+        });
+    } catch (error) {
+        console.error('Error initializing video tracking:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Update video progress (called every 5 seconds while watching)
+userRouter.put("/video/progress", verifyToken, async (req, res) => {
+    try {
+        const { messageId, currentTime, duration } = req.body;
+        const userId = req.user.id;
+
+        const tracking = await SharedVideoTracking.findOne({
+            messageId,
+            receiverId: userId
+        });
+
+        if (!tracking) {
+            return res.status(404).json({ msg: 'Video tracking not found' });
+        }
+
+        // Update progress
+        tracking.currentTime = Math.max(tracking.currentTime, currentTime); // Only move forward
+        tracking.duration = duration;
+        tracking.lastWatchedAt = new Date();
+        tracking.totalWatchTime += 5; // Assuming 5-second intervals
+        tracking.viewCount += 1;
+
+        await tracking.save();
+
+        res.json({
+            msg: 'Progress updated',
+            watchPercentage: tracking.watchPercentage,
+            isCompleted: tracking.isCompleted
+        });
+    } catch (error) {
+        console.error('Error updating video progress:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get video tracking info for both sender and receiver
+userRouter.get("/video/tracking/:messageId", verifyToken, async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const userId = req.user.id;
+
+        // Get the message to verify access
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({ msg: 'Message not found' });
+        }
+
+        // Verify user is sender or receiver
+        const conversation = await Conversation.findById(message.conversationId);
+        if (!conversation.participants.includes(userId)) {
+            return res.status(403).json({ msg: 'Not authorized' });
+        }
+
+        // Get tracking info
+        const tracking = await SharedVideoTracking.findOne({
+            messageId
+        }).populate('senderId', 'username firstname lastname')
+          .populate('receiverId', 'username firstname lastname');
+
+        if (!tracking) {
+            return res.json({
+                msg: 'No tracking data available',
+                tracking: null
+            });
+        }
+
+        // Return different data based on user role
+        const isSender = tracking.senderId._id.toString() === userId;
+        const isReceiver = tracking.receiverId._id.toString() === userId;
+
+        const responseData = {
+            messageId: tracking.messageId,
+            videoUrl: tracking.videoUrl,
+            watchPercentage: tracking.watchPercentage,
+            isCompleted: tracking.isCompleted,
+            lastWatchedAt: tracking.lastWatchedAt,
+            firstWatchedAt: tracking.firstWatchedAt,
+            sender: {
+                id: tracking.senderId._id,
+                username: tracking.senderId.username,
+                name: `${tracking.senderId.firstname} ${tracking.senderId.lastname}`
+            },
+            receiver: {
+                id: tracking.receiverId._id,
+                username: tracking.receiverId.username,
+                name: `${tracking.receiverId.firstname} ${tracking.receiverId.lastname}`
+            }
+        };
+
+        // Add additional data for receiver
+        if (isReceiver) {
+            responseData.currentTime = tracking.currentTime;
+            responseData.duration = tracking.duration;
+            responseData.totalWatchTime = tracking.totalWatchTime;
+        }
+
+        res.json({
+            msg: 'Tracking data retrieved',
+            tracking: responseData,
+            userRole: isSender ? 'sender' : 'receiver'
+        });
+    } catch (error) {
+        console.error('Error getting video tracking:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get all video tracking stats for a conversation (for analytics)
+userRouter.get("/video/conversation/:conversationId", verifyToken, async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+        const userId = req.user.id;
+
+        // Verify user is part of the conversation
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation.participants.includes(userId)) {
+            return res.status(403).json({ msg: 'Not authorized' });
+        }
+
+        const trackingData = await SharedVideoTracking.find({
+            conversationId
+        }).populate('senderId', 'username firstname lastname')
+          .populate('receiverId', 'username firstname lastname')
+          .populate('messageId', 'createdAt')
+          .sort({ createdAt: -1 });
+
+        res.json({
+            msg: 'Conversation video tracking retrieved',
+            trackingData
+        });
+    } catch (error) {
+        console.error('Error getting conversation video tracking:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get videos sent by user (sender's dashboard)
+userRouter.get("/video/sent", verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const sentVideos = await SharedVideoTracking.find({
+            senderId: userId
+        }).populate('receiverId', 'username firstname lastname')
+          .populate('conversationId')
+          .populate('messageId', 'createdAt')
+          .sort({ createdAt: -1 });
+
+        res.json({
+            msg: 'Sent videos tracking retrieved',
+            sentVideos
+        });
+    } catch (error) {
+        console.error('Error getting sent videos:', error);
+        res.status(500).json({ msg: 'Server error' });
+    }
+});
+
+// Get videos received by user (receiver's dashboard)
+userRouter.get("/video/received", verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const receivedVideos = await SharedVideoTracking.find({
+            receiverId: userId
+        }).populate('senderId', 'username firstname lastname')
+          .populate('conversationId')
+          .populate('messageId', 'createdAt')
+          .sort({ lastWatchedAt: -1 });
+
+        res.json({
+            msg: 'Received videos tracking retrieved',
+            receivedVideos
+        });
+    } catch (error) {
+        console.error('Error getting received videos:', error);
         res.status(500).json({ msg: 'Server error' });
     }
 });
