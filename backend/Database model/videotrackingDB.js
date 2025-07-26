@@ -1,4 +1,6 @@
 
+import mongoose from "mongoose";
+import { Schema, model } from "mongoose";
 
 const VideoTrackingSchema = new mongoose.Schema(
     {
@@ -47,7 +49,4 @@ const VideoTrackingSchema = new mongoose.Schema(
   
   VideoTrackingSchema.index({ videoId: 1, userId: 1 });
 
-  const Videotracking = new model('Videotracking', VideoTrackingSchema)
-
-
-  exports.default = {Videotracking}
+  export const VideoTracking = model('VideoTracking', VideoTrackingSchema);
