@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import VideoMessageWithTracking from '../Component/VideoTrackingComponents';
 import {
   Search,
   MoreVertical,
@@ -37,6 +38,7 @@ import Navbar from '../Component/Navbar';
 let client = null;
 
 const MessagingPage = () => {
+    const token = localStorage.getItem('token');
   const { contactId } = useParams();
   const [selectedContact, setSelectedContact] = useState(contactId || null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,6 +51,7 @@ const MessagingPage = () => {
   const [filePreview, setFilePreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
+  const [userId, setUserId] = useState(null);
   
   // Inventory states
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -72,17 +75,26 @@ const MessagingPage = () => {
     unitPrice: 0
   });
 
+  // Video tracking states
+  const [videoTrackingData, setVideoTrackingData] = useState({});
+  const [activeVideoIntervals, setActiveVideoIntervals] = useState({});
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const fetchCurrentUser = async () => {
     try {
       const token = localStorage.getItem('token');
-      const userId = localStorage.getItem('userId');
-      const response = await axios.get(`http://localhost:3000/backend/v1/user/${userId}/profile`, {
+      const userIdFromStorage = localStorage.getItem('userId');
+      setUserId(userIdFromStorage);
+      const response = await axios.get(`http://localhost:3000/backend/v1/user/${userIdFromStorage}/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setCurrentUser({ ...response.data, _id: userId });
+      setCurrentUser({ ...response.data, _id: userIdFromStorage });
     } catch (error) {
       console.error('Error fetching current user:', error);
     }
@@ -312,9 +324,122 @@ const MessagingPage = () => {
 
   const selectedContactData = contacts.find(contact => contact._id === selectedContact);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // Initialize video tracking for video messages
+  const initializeVideoTracking = async (messageId, videoElement) => {
+    try {
+      const response = await axios.post(
+        `/backend/v1/video/initialize`,
+        { messageId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        // Start progress tracking
+        setupVideoProgressTracking(messageId, videoElement);
+      }
+    } catch (error) {
+      console.error('Error initializing video tracking:', error);
+    }
   };
+
+  // Setup progress tracking for video
+  const setupVideoProgressTracking = (messageId, videoElement) => {
+    // Clear any existing interval
+    if (activeVideoIntervals[messageId]) {
+      clearInterval(activeVideoIntervals[messageId]);
+    }
+
+    const interval = setInterval(async () => {
+      if (videoElement && !videoElement.paused && !videoElement.ended) {
+        try {
+          await axios.put(
+            `/backend/v1/video/progress`,
+            {
+              messageId,
+              currentTime: videoElement.currentTime
+            },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          
+          // Update local tracking data
+          await fetchVideoTrackingData(messageId);
+        } catch (error) {
+          console.error('Error updating video progress:', error);
+        }
+      }
+    }, 5000); // Update every 5 seconds
+
+    setActiveVideoIntervals(prev => ({
+      ...prev,
+      [messageId]: interval
+    }));
+
+    // Clean up interval when video ends or user leaves
+    videoElement.addEventListener('ended', () => {
+      clearInterval(interval);
+      setActiveVideoIntervals(prev => {
+        const newIntervals = { ...prev };
+        delete newIntervals[messageId];
+        return newIntervals;
+      });
+    });
+  };
+
+  // Fetch video tracking data
+  const fetchVideoTrackingData = async (messageId) => {
+    try {
+      const response = await axios.get(
+        `/backend/v1/video/tracking/${messageId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (response.data.success) {
+        setVideoTrackingData(prev => ({
+          ...prev,
+          [messageId]: response.data.tracking
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching video tracking data:', error);
+    }
+  };
+
+  // Handle video load for tracking
+  const handleVideoLoad = async (messageId, videoElement) => {
+    // Initialize tracking for this video
+    await initializeVideoTracking(messageId, videoElement);
+    
+    // Fetch existing tracking data
+    await fetchVideoTrackingData(messageId);
+    
+    // Set video to last watched position if available
+    const tracking = videoTrackingData[messageId];
+    if (tracking && tracking.currentTime > 0) {
+      videoElement.currentTime = tracking.currentTime;
+    }
+  };
+
+  // Refresh tracking data for sent videos (to see receiver's progress)
+  useEffect(() => {
+    const refreshSentVideoTracking = async () => {
+      if (messages && messages.length > 0) {
+        const sentVideoMessages = messages.filter(msg => 
+          msg.type === 'video' && 
+          msg.fileUrl && 
+          msg.sender === userId
+        );
+        
+        for (const msg of sentVideoMessages) {
+          await fetchVideoTrackingData(msg._id);
+        }
+      }
+    };
+
+    // Refresh every 10 seconds for sent videos
+    const interval = setInterval(refreshSentVideoTracking, 10000);
+    
+    return () => clearInterval(interval);
+  }, [messages, userId]);
 
   useEffect(() => {
     if (selectedContact) {
@@ -433,6 +558,25 @@ const MessagingPage = () => {
       fetchInventoryItems();
     }
   }, [showInventoryModal, currentConversation]);
+
+  // Video tracking useEffect
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      // Load tracking data for all video messages
+      const videoMessages = messages.filter(msg => msg.type === 'video' && msg.fileUrl);
+      videoMessages.forEach(msg => {
+        fetchVideoTrackingData(msg._id);
+      });
+    }
+
+    // Cleanup intervals when component unmounts or conversation changes
+    return () => {
+      Object.values(activeVideoIntervals).forEach(interval => {
+        clearInterval(interval);
+      });
+      setActiveVideoIntervals({});
+    };
+  }, [messages, currentConversation]);
 
   const handleContactSelect = async (contactId) => {
     setSelectedContact(contactId);
@@ -632,14 +776,11 @@ const MessagingPage = () => {
       );
     } else if (type === 'video' && fileUrl) {
       return (
-        <div className="space-y-2">
-          <video 
-            src={fileUrl} 
-            controls
-            className="max-w-full h-auto rounded-lg"
-          />
-          <p className="text-xs opacity-75">{text}</p>
-        </div>
+        <VideoMessageWithTracking
+          message={message}
+          currentUserId={userId}
+          token={token}
+        />
       );
     } else if (type === 'audio' && fileUrl) {
       return (

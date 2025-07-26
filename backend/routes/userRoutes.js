@@ -842,7 +842,7 @@ userRouter.get('/inventory/orders/user', verifyToken, async (req, res) => {
 userRouter.post("/video/initialize", verifyToken, async (req, res) => {
     try {
         const { messageId, videoUrl, duration } = req.body;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         // Get the message to find sender and conversation
         const message = await Message.findById(messageId)
@@ -854,7 +854,7 @@ userRouter.post("/video/initialize", verifyToken, async (req, res) => {
 
         // Verify user is part of the conversation
         const conversation = await Conversation.findById(message.conversationId);
-        if (!conversation.participants.includes(userId)) {
+        if (!conversation.participants.map(p => p.toString()).includes(userId.toString())) {
             return res.status(403).json({ msg: 'Not authorized to view this video' });
         }
 
@@ -901,7 +901,7 @@ userRouter.post("/video/initialize", verifyToken, async (req, res) => {
 userRouter.put("/video/progress", verifyToken, async (req, res) => {
     try {
         const { messageId, currentTime, duration } = req.body;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         const tracking = await SharedVideoTracking.findOne({
             messageId,
@@ -936,7 +936,7 @@ userRouter.put("/video/progress", verifyToken, async (req, res) => {
 userRouter.get("/video/tracking/:messageId", verifyToken, async (req, res) => {
     try {
         const { messageId } = req.params;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         // Get the message to verify access
         const message = await Message.findById(messageId);
@@ -946,7 +946,7 @@ userRouter.get("/video/tracking/:messageId", verifyToken, async (req, res) => {
 
         // Verify user is sender or receiver
         const conversation = await Conversation.findById(message.conversationId);
-        if (!conversation.participants.includes(userId)) {
+        if (!conversation.participants.map(p => p.toString()).includes(userId.toString())) {
             return res.status(403).json({ msg: 'Not authorized' });
         }
 
@@ -964,8 +964,8 @@ userRouter.get("/video/tracking/:messageId", verifyToken, async (req, res) => {
         }
 
         // Return different data based on user role
-        const isSender = tracking.senderId._id.toString() === userId;
-        const isReceiver = tracking.receiverId._id.toString() === userId;
+        const isSender = tracking.senderId._id.toString() === userId.toString();
+        const isReceiver = tracking.receiverId._id.toString() === userId.toString();
 
         const responseData = {
             messageId: tracking.messageId,
@@ -1008,11 +1008,11 @@ userRouter.get("/video/tracking/:messageId", verifyToken, async (req, res) => {
 userRouter.get("/video/conversation/:conversationId", verifyToken, async (req, res) => {
     try {
         const { conversationId } = req.params;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         // Verify user is part of the conversation
         const conversation = await Conversation.findById(conversationId);
-        if (!conversation.participants.includes(userId)) {
+        if (!conversation.participants.map(p => p.toString()).includes(userId.toString())) {
             return res.status(403).json({ msg: 'Not authorized' });
         }
 
@@ -1036,7 +1036,7 @@ userRouter.get("/video/conversation/:conversationId", verifyToken, async (req, r
 // Get videos sent by user (sender's dashboard)
 userRouter.get("/video/sent", verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         const sentVideos = await SharedVideoTracking.find({
             senderId: userId
@@ -1058,7 +1058,7 @@ userRouter.get("/video/sent", verifyToken, async (req, res) => {
 // Get videos received by user (receiver's dashboard)
 userRouter.get("/video/received", verifyToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         const receivedVideos = await SharedVideoTracking.find({
             receiverId: userId
